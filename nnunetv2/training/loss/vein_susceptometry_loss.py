@@ -27,17 +27,31 @@ class PhysicsFieldLoss(nn.Module):
     Returns:
       total_loss, metrics_dict
     """
-    def __init__(self, vein_channel=1, chi_blood_ppm=0.30,
-                 lambdas=None, topk_frac=0.10):
+    def __init__(self,
+                 vein_channel=1,
+                 chi_blood_ppm=0.1,
+                 lambdas=None,
+                 topk_frac=0.10,
+                 # NEW defaults
+                 default_voxel_size=(0.6,0.6,0.6),              # e.g. (0.6,0.6,0.6)
+                 expects_b0_from_forward=True,         # require b0_dir in forward by default
+                 eval_mask_mode='predicted_hard',      # or 'provided'
+                 learnable_chi=False,
+                 chi_blood_bounds=(0.15, 0.45)):
         super().__init__()
         self.vein_channel = vein_channel
-        self.topk_frac = topk_frac
-        if lambdas is None:
-            lambdas = dict(phys=0.55, mae=0.25, tail=0.15, sign=0.05)  # good starting shares
-        self.lambdas = lambdas
-        # make chi_blood learnable but clamped (0.15..0.45 ppm) if you want; fixed by default
-        self._chi_blood = nn.Parameter(torch.tensor(float(chi_blood_ppm)), requires_grad=False)
+        self.topk_frac = float(topk_frac)
+        self.lambdas = dict(phys=0.55, mae=0.25, tail=0.15, sign=0.05) if lambdas is None else dict(lambdas)
 
+        # store defaults
+        self.default_voxel_size = default_voxel_size
+        self.expects_b0_from_forward = expects_b0_from_forward
+        self.eval_mask_mode = eval_mask_mode
+
+        # chi_blood as (optionally) learnable, with clamping in forward
+        self._chi_blood = nn.Parameter(torch.tensor(float(chi_blood_ppm)), requires_grad=learnable_chi)
+        self._chi_bounds = tuple(map(float, chi_blood_bounds))
+        
     @staticmethod
     def _dipole_field_from_chi(chi_xyz, voxel_size, b0_dir):
         """
@@ -82,7 +96,7 @@ class PhysicsFieldLoss(nn.Module):
         return field
 
     def forward(self, net_output, target, *,
-                b0_dir, voxel_size,
+                b0_dir,
                 brain_mask=None, vein_eval=None,
                 chi_blood_ppm=None):
         """
@@ -95,7 +109,7 @@ class PhysicsFieldLoss(nn.Module):
         vein_p = probs[:, self.vein_channel:self.vein_channel+1]  # (B,1,X,Y,Z)
 
         chi_qsm = target[:, 0:1]                      # (B,1,X,Y,Z), ppm
-        B_meas  = target[:, 1:1+1]                    # (B,1,X,Y,Z), ppm
+        B_meas  = target[:, 1:2]                    # (B,1,X,Y,Z), ppm
 
         if brain_mask is None:
             brain_mask = (chi_qsm != 0).float()
