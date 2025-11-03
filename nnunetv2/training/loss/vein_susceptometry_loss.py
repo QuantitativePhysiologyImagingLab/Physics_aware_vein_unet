@@ -131,7 +131,7 @@ class PhysicsFieldLoss(nn.Module):
         chi_total = (1.0 - vein_p.detach()) * chi_qsm.detach() + vein_p * chi_b.view(1,1,1,1,1)
 
         # Full-volume dipole forward model
-        B_pred = self._dipole_field_from_chi(chi_total, voxel_size, b0_dir)  # (B,1,X,Y,Z)
+        B_pred = self._dipole_field_from_chi(chi_total, self.default_voxel_size, b0_dir)  # (B,1,X,Y,Z)
 
         # ----- physics terms (mirroring your previous script) -----
 
